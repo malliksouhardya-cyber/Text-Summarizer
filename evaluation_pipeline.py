@@ -102,24 +102,50 @@ CURATED_QUESTIONS = {
 
 
 def auto_extract_terms(model_text):
-    words = clean_and_tokenize(model_text)
-    common_non_tech = {
-        "comprises", "comprise", "utilizes", "utilize", "provides", "provide", "regardless", 
-        "employs", "employ", "combines", "combine", "using", "used", "uses", "use", "academic", 
-        "objective", "objectively", "subjective", "subjectively", "fundamental", "granular", 
-        "four", "three", "two", "one", "which", "would", "could", "should", "about", "other",
-        "some", "these", "those", "their", "there", "where", "while", "during", "before", "after",
-        "first", "second", "third", "final", "often", "contain", "begins", "began", "scanned",
-        "extracts", "extract", "normalizes", "normalize", "removes", "remove", "ensuring",
-        "ensure", "comparison", "compare", "regardless", "calculating", "calculate", "scales",
-        "scale", "listing", "list", "present", "representing", "represent", "incorporating",
-        "incorporate", "stripped", "strip", "penalized", "penalize", "establish", "established"
-    }
-    extracted = set()
-    for w in words:
-        if len(w) >= 5 and w not in STOPWORDS and w not in common_non_tech and not w.isdigit():
-            extracted.add(w)
-    return {w: [w] for w in sorted(extracted)}
+    import nltk
+    from nltk import RegexpParser
+
+    # Ensure required NLTK resources are downloaded
+    nltk.download('averaged_perceptron_tagger', quiet=True)
+    nltk.download('averaged_perceptron_tagger_eng', quiet=True)
+    
+    sentences = split_into_sentences(model_text)
+    # Define a grammar for noun phrases (adjectives/gerunds followed by nouns)
+    grammar = r"NP: {<JJ|VBG>*<NN.*>+}"
+    parser = RegexpParser(grammar)
+    
+    phrases = set()
+    for sent in sentences:
+        try:
+            words = nltk.word_tokenize(sent)
+        except LookupError:
+            nltk.download('punkt', quiet=True)
+            words = nltk.word_tokenize(sent)
+            
+        tagged = nltk.pos_tag(words)
+        tree = parser.parse(tagged)
+        
+        for subtree in tree.subtrees(filter=lambda t: t.label() == 'NP'):
+            phrase = " ".join(word for word, tag in subtree.leaves())
+            phrase_clean = phrase.lower().translate(str.maketrans("", "", string.punctuation)).strip()
+            
+            # Simple clean tokenization for the phrase
+            words_in_phrase = phrase_clean.split()
+            if not words_in_phrase:
+                continue
+                
+            # Filter out generic words
+            if len(words_in_phrase) == 1:
+                w = words_in_phrase[0]
+                if len(w) < 4 or w in STOPWORDS or w in {"using", "being", "having", "doing", "make", "take", "same", "many", "such"}:
+                    continue
+            
+            # Ensure the phrase contains at least one meaningful word
+            if any(w not in STOPWORDS and len(w) >= 3 and not w.isdigit() for w in words_in_phrase):
+                phrases.add(phrase_clean)
+                
+    # Return mapped to list of itself as fallback variants
+    return {p: [p] for p in sorted(phrases)}
 
 
 # ---- Guardrail thresholds (tune these if they feel too strict/loose) ----
@@ -324,6 +350,15 @@ def technical_term_coverage(student_text, model_text):
                             break
                 if is_matched:
                     break
+                    
+            # Check if all stems of a multi-word variant are present in the student answer stems
+            if " " in var_clean:
+                var_words = var_clean.split()
+                var_stems = [simple_stem(vw) for vw in var_words]
+                student_stems = [simple_stem(sw) for sw in student_words]
+                if all(s in student_stems for s in var_stems):
+                    is_matched = True
+                    break
 
         # If it was an auto-extracted word and not matched yet, check standard synonyms map
         if not is_matched and term.lower() in synonyms_fallback:
@@ -383,8 +418,19 @@ def check_off_topic_guardrail(avg_semantic):
     return False, None
 
 
+def normalize_spacing(text):
+    # Insert space after punctuation if there isn't one (e.g. fast.A -> fast. A)
+    text = re.sub(r'([.!?:\)])([a-zA-Z])', r'\1 \2', text)
+    # Insert spaces around math delimiters like $ (e.g. $O(1)$Insert -> $ O(1) $ Insert)
+    text = re.sub(r'\$', ' $ ', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
 def evaluate_answer(student_text, model_text, max_marks=100.0,
                      semantic_weight=0.7, term_weight=0.3):
+    student_text = normalize_spacing(student_text)
+    model_text = normalize_spacing(model_text)
+    
     point_matches = match_key_points(model_text, student_text)
 
     if not point_matches:
