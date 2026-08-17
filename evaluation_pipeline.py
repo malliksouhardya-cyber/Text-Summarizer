@@ -62,6 +62,66 @@ STOPWORDS = {
     "his", "her", "their", "our", "your", "my", "me", "him", "us",
 }
 
+CURATED_QUESTIONS = {
+    "descriptive_evaluation": {
+        "detect_keywords": ["optical character", "ocr", "preprocessing", "morphological", "stemming", "summarization", "concept matching"],
+        "terms": {
+            "optical character recognition": ["ocr", "optical character recognition", "scanned", "ingestion"],
+            "natural language processing": ["nlp", "natural language processing", "ednlp"],
+            "semantic analysis": ["semantic analysis", "concept matching", "semantic matching", "vector space overlap"],
+            "text preprocessing": ["preprocessing", "preprocess", "clean tokenization", "tokenization", "tokenize"],
+            "extractive summarization": ["summarization", "summarize", "summarizer", "word frequency scoring", "sentence boundary detection"],
+            "morphological normalization": ["morphological normalization", "stemming", "lemmatization", "porterstemmer", "root reduction"],
+            "concept matching": ["concept matching", "semantic matching", "concept level scoring"],
+            "audit reporting": ["audit reporting", "diagnostic report", "evaluation report"]
+        }
+    },
+    "neural_networks": {
+        "detect_keywords": ["neural network", "ann", "deep learning", "perceptron", "backpropagation", "activation function", "gradient descent", "hidden layer"],
+        "terms": {
+            "backpropagation": ["backpropagation", "backprop", "backward pass"],
+            "activation function": ["activation function", "sigmoid", "relu", "tanh", "softmax"],
+            "gradient descent": ["gradient descent", "gradient", "optimization", "sgd", "adam"],
+            "hidden layer": ["hidden layer", "hidden layers"],
+            "weights and biases": ["weights", "biases", "weight", "bias"],
+            "loss function": ["loss function", "cost function", "mse", "cross entropy"]
+        }
+    },
+    "transformer": {
+        "detect_keywords": ["transformer", "attention mechanism", "self-attention", "multi-head attention", "positional encoding"],
+        "terms": {
+            "self-attention": ["self-attention", "scaled dot-product attention"],
+            "multi-head attention": ["multi-head attention", "multihead attention"],
+            "encoder": ["encoder", "encoders"],
+            "decoder": ["decoder", "decoders"],
+            "positional encoding": ["positional encoding", "positional encodings", "position embedding"],
+            "feed-forward network": ["feed-forward network", "ffn", "feed forward"]
+        }
+    }
+}
+
+
+def auto_extract_terms(model_text):
+    words = clean_and_tokenize(model_text)
+    common_non_tech = {
+        "comprises", "comprise", "utilizes", "utilize", "provides", "provide", "regardless", 
+        "employs", "employ", "combines", "combine", "using", "used", "uses", "use", "academic", 
+        "objective", "objectively", "subjective", "subjectively", "fundamental", "granular", 
+        "four", "three", "two", "one", "which", "would", "could", "should", "about", "other",
+        "some", "these", "those", "their", "there", "where", "while", "during", "before", "after",
+        "first", "second", "third", "final", "often", "contain", "begins", "began", "scanned",
+        "extracts", "extract", "normalizes", "normalize", "removes", "remove", "ensuring",
+        "ensure", "comparison", "compare", "regardless", "calculating", "calculate", "scales",
+        "scale", "listing", "list", "present", "representing", "represent", "incorporating",
+        "incorporate", "stripped", "strip", "penalized", "penalize", "establish", "established"
+    }
+    extracted = set()
+    for w in words:
+        if len(w) >= 5 and w not in STOPWORDS and w not in common_non_tech and not w.isdigit():
+            extracted.add(w)
+    return {w: [w] for w in sorted(extracted)}
+
+
 # ---- Guardrail thresholds (tune these if they feel too strict/loose) ----
 MIN_LENGTH_RATIO = 0.3      # student word count below 30% of model's -> short-answer cap kicks in
 OFF_TOPIC_THRESHOLD = 0.25  # avg key-point similarity below 25% -> off-topic cap kicks in
@@ -188,20 +248,25 @@ def match_key_points(model_answer, student_answer):
 
 
 def technical_term_coverage(student_text, model_text):
-    student_roots = extract_concept_roots(student_text)
-    model_roots = extract_concept_roots(model_text)
+    active_curation = None
+    model_lower = model_text.lower()
+    
+    for q_key, q_data in CURATED_QUESTIONS.items():
+        if any(keyword in model_lower for keyword in q_data["detect_keywords"]):
+            active_curation = q_data["terms"]
+            break
+            
+    if not active_curation:
+        active_curation = auto_extract_terms(model_text)
 
-    if not model_roots:
+    if not active_curation:
         return 1.0, [], []
-
-    student_words = list(student_roots.values())
-    model_words = list(model_roots.values())
 
     matched_words = []
     missing_words = []
 
-    # Map of typical synonyms in descriptive grading context
-    synonyms = {
+    # Map of typical synonyms in descriptive grading context for fallback use
+    synonyms_fallback = {
         "module": ["layer", "stage", "phase", "component"],
         "modules": ["layers", "stages", "phases", "components"],
         "comprises": ["consists", "contains", "includes", "has", "consist", "contain", "include"],
@@ -216,64 +281,64 @@ def technical_term_coverage(student_text, model_text):
         "provides": ["gives", "offers", "provide", "give", "offer", "generates", "generate"],
         "redundant": ["unnecessary", "useless", "filler"],
         "analysis": ["analyze", "analyzer", "analyzing", "evaluation"],
-        "benchmark": ["reference", "model"],
-        "diagnostic": ["detailed", "evaluation", "report"],
-        "employs": ["uses", "utilizes", "employ", "use", "utilize"],
-        "endtoend": ["architecture", "pipeline", "automated"],
-        "fair": ["unbiased", "consistency", "grading"],
-        "fundamental": ["main", "operational", "core"],
-        "granular": ["detailed", "itemizing"],
-        "key": ["core", "crucial", "essential", "technical"],
-        "listing": ["itemizing", "generates"],
-        "mark": ["score", "numeric"],
-        "objectively": ["impartial", "eliminating bias", "consistency"],
-        "output": ["results", "score", "report"],
-        "recall": ["overlap", "match"],
-        "syntax": ["voice", "grammar", "grammatical"],
     }
 
-    # Helper to check if a model word is semantically matched in student words
-    for m_word in model_words:
-        m_lower = m_word.lower()
-        m_stem = simple_stem(m_word)
-        
+    student_roots = extract_concept_roots(student_text)
+    student_words = list(student_roots.values())
+
+    for term, variants in active_curation.items():
         is_matched = False
-        for s_word in student_words:
-            s_lower = s_word.lower()
-            s_stem = simple_stem(s_word)
-            
-            # 1. Exact or Stem match
-            if m_lower == s_lower or m_stem == s_stem:
+        student_clean = student_text.lower()
+        
+        # Check direct substring matching for each variant (case-insensitive)
+        for variant in variants:
+            var_clean = variant.lower()
+            if var_clean in student_clean:
                 is_matched = True
                 break
                 
-            # 2. Prefix overlap check (minimum length 4, covering 70% of shorter word)
-            common_prefix = ""
-            for char1, char2 in zip(m_lower, s_lower):
-                if char1 == char2:
-                    common_prefix += char1
-                else:
+            # Check stem of single-word variants
+            if " " not in var_clean:
+                var_stem = simple_stem(var_clean)
+                for sw in student_words:
+                    if simple_stem(sw) == var_stem:
+                        is_matched = True
+                        break
+                if is_matched:
                     break
-            if len(common_prefix) >= 4:
-                shorter_len = min(len(m_lower), len(s_lower))
-                if len(common_prefix) / shorter_len >= 0.7:
-                    is_matched = True
+                    
+            # Check prefix overlap for single-word variants
+            if " " not in var_clean and len(var_clean) >= 4:
+                for sw in student_words:
+                    s_lower = sw.lower()
+                    common_prefix = ""
+                    for char1, char2 in zip(var_clean, s_lower):
+                        if char1 == char2:
+                            common_prefix += char1
+                        else:
+                            break
+                    if len(common_prefix) >= 4:
+                        shorter_len = min(len(var_clean), len(s_lower))
+                        if len(common_prefix) / shorter_len >= 0.7:
+                            is_matched = True
+                            break
+                if is_matched:
                     break
 
-        # 3. Synonym check
-        if not is_matched and m_lower in synonyms:
-            for syn in synonyms[m_lower]:
+        # If it was an auto-extracted word and not matched yet, check standard synonyms map
+        if not is_matched and term.lower() in synonyms_fallback:
+            for syn in synonyms_fallback[term.lower()]:
                 syn_stem = simple_stem(syn)
                 if any(syn in sw.lower() or syn_stem == simple_stem(sw) for sw in student_words):
                     is_matched = True
                     break
 
         if is_matched:
-            matched_words.append(m_word)
+            matched_words.append(term)
         else:
-            missing_words.append(m_word)
+            missing_words.append(term)
 
-    coverage = len(matched_words) / len(model_words) if model_words else 1.0
+    coverage = len(matched_words) / len(active_curation) if active_curation else 1.0
     return coverage, sorted(matched_words), sorted(missing_words)
 
 
