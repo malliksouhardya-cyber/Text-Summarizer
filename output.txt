@@ -1,0 +1,25 @@
+=================================================================
+   AI THEORY ANSWER EVALUATION PIPELINE (SEMANTIC + STEMMED v3.0)
+=================================================================
+
+[STEP 1: TEXT SUMMARIZATION]
+Original Length : 1133 words
+Summary Length  : 34 words (97.0% reduction)
+
+--- Extracted Summary ---
+Teachers can also use AI to prepare educational materials, organize information, and develop learning activities. The rapid development of AI also raises questions about employment. Artificial intelligence is also changing scientific research and innovation.
+
+=================================================================
+[STEP 2: SEMANTIC + TECHNICAL-TERM SCORING]
+=================================================================
+Final Score              : 83.25 / 100.0
+  - Semantic Similarity  : 78.3%  (meaning match, weight 70%)
+  - Technical Term Cover : 94.9%  (required terms present, weight 30%)
+
+✅ Matched Technical Terms (129):
+accountability, advanced, ai, aidriven, aigenerated, also, always, amounts, analysis, analyze, areas, artificial, assistance, automate, because, become, benefit, biased, branch, business, carefully, challenges, change, communication, complex, computer, concepts, concern, contains, creating, critical, customer, cybersecurity, data, datasets, decisions, demand, despite, development, difficult, driverassistance, education, errors, fairness, future, healthcare, help, however, human, identify, images, important, improve, inaccurate, include, information, intelligence, jobs, language, large, learning, logistics, machines, making, managed, materials, may, medical, modern, must, new, normally, opportunities, oversight, part, patterns, perform, personalized, potential, practice, predict, preferences, prepare, privacy, problemsolving, process, produce, professionals, programming, questions, receive, recognizing, recommend, reliable, remains, repetitive, require, research, responsibly, results, risks, routes, safe, safety, science, scientific, service, several, skills, smartphones, society, software, students, summarize, supervision, support, systems, tasks, teachers, technology, therefore, thinking, traffic, transparency, transportation, understanding, unfair, used, while
+
+⚠️ Missing Technical Terms (7):
+accurate, advantages, enables, great, necessary, overall, principles
+
+=================================================================
