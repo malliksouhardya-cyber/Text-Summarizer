@@ -1,25 +1,49 @@
-=================================================================
-   AI THEORY ANSWER EVALUATION PIPELINE (SEMANTIC + STEMMED v3.0)
-=================================================================
+======================================================================
+   AI THEORY ANSWER EVALUATION PIPELINE (POINT-LEVEL MATCHING v4.0)
+======================================================================
 
 [STEP 1: TEXT SUMMARIZATION]
-Original Length : 1133 words
-Summary Length  : 34 words (97.0% reduction)
+Original Length : 509 words
+Summary Length  : 43 words (91.6% reduction)
 
 --- Extracted Summary ---
-Teachers can also use AI to prepare educational materials, organize information, and develop learning activities. The rapid development of AI also raises questions about employment. Artificial intelligence is also changing scientific research and innovation.
+The second core phase is extractive text summarization. To isolate essential statements, the summarizer splits the answer into individual sentences using sentence boundary detection. The system extracts concept roots from both the student's summarized text (or full answer) and the teacher's model answer.
 
-=================================================================
-[STEP 2: SEMANTIC + TECHNICAL-TERM SCORING]
-=================================================================
-Final Score              : 83.25 / 100.0
-  - Semantic Similarity  : 78.3%  (meaning match, weight 70%)
-  - Technical Term Cover : 94.9%  (required terms present, weight 30%)
+======================================================================
+[STEP 2: POINT-LEVEL SEMANTIC MATCHING]
+======================================================================
 
-✅ Matched Technical Terms (129):
-accountability, advanced, ai, aidriven, aigenerated, also, always, amounts, analysis, analyze, areas, artificial, assistance, automate, because, become, benefit, biased, branch, business, carefully, challenges, change, communication, complex, computer, concepts, concern, contains, creating, critical, customer, cybersecurity, data, datasets, decisions, demand, despite, development, difficult, driverassistance, education, errors, fairness, future, healthcare, help, however, human, identify, images, important, improve, inaccurate, include, information, intelligence, jobs, language, large, learning, logistics, machines, making, managed, materials, may, medical, modern, must, new, normally, opportunities, oversight, part, patterns, perform, personalized, potential, practice, predict, preferences, prepare, privacy, problemsolving, process, produce, professionals, programming, questions, receive, recognizing, recommend, reliable, remains, repetitive, require, research, responsibly, results, risks, routes, safe, safety, science, scientific, service, several, skills, smartphones, society, software, students, summarize, supervision, support, systems, tasks, teachers, technology, therefore, thinking, traffic, transparency, transportation, understanding, unfair, used, while
+✅ Key Point 1 (74.5% match)
+   Model    : An automated descriptive answer evaluation system combines optical character recognition, natural language processing, and semantic analysis to grade subjective academic responses objectively.
+   Best match in student answer: "Automated evaluation of descriptive answers is an emerging subfield of Educational Natural Language Processing (EdNLP) aimed at eliminating manual grading overhead and reducing human subjective bias in university-level examinations."
 
-⚠️ Missing Technical Terms (7):
-accurate, advantages, enables, great, necessary, overall, principles
+⚠️ Key Point 2 (59.1% match)
+   Model    : The preprocessing and ingestion module extracts text, normalizes capitalization, removes non-informative stopwords, and tokenizes technical terms.
+   Best match in student answer: "The initial stage of the evaluation workflow begins with text ingestion."
 
-=================================================================
+✅ Key Point 3 (76.9% match)
+   Model    : Extractive text summarization employs sentence boundary detection and word-frequency scoring to extract high-density core technical sentences while removing redundant filler.
+   Best match in student answer: "The second core phase is extractive text summarization."
+
+✅ Key Point 4 (77.5% match)
+   Model    : Morphological normalization utilizes stemming algorithms such as NLTK PorterStemmer or lemmatization to reduce word inflections to common semantic roots for fair syntax comparison.
+   Best match in student answer: "The third stage is morphological normalization via stemming and lemmatization."
+
+⚠️ Key Point 5 (63.5% match)
+   Model    : Semantic concept matching and audit reporting evaluates concept recall by calculating the overlap of key technical roots, scaling the score to total marks and generating diagnostic reports.
+   Best match in student answer: "Furthermore, the system generates a detailed evaluation report itemizing matched technical terms, identifying missing concepts, and highlighting structural gaps."
+
+======================================================================
+[STEP 3: FINAL SCORE]
+======================================================================
+Final Score              : 86.21 / 100.0
+  - Semantic Similarity  : 81.7%  (avg across key points, weight 70%)
+  - Technical Term Cover : 73.3%  (required terms present, weight 30%)
+
+✅ Matched Technical Terms (63):
+answer, audit, automated, boundary, calculating, capitalization, character, common, concept, core, descriptive, detection, document, ensuring, evaluation, extracts, filler, four, grade, highdensity, inflections, ingestion, language, lemmatization, matching, missing, model, morphological, natural, nltk, noninformative, normalizes, optical, overlap, pipeline, porterstemmer, preprocessing, processing, ratio, recognition, reduce, removes, reporting, roots, scales, scoring, semantic, sentence, stemming, stopwords, student, subjective, summarization, system, technical, tense, terms, text, tokenizes, total, transparent, while, word
+
+⚠️ Missing Technical Terms (23):
+academic, analysis, benchmark, combines, comparison, diagnostic, employs, endtoend, fair, feedback, fundamental, granular, key, listing, mark, modules, objectively, output, recall, redundant, responses, syntax, wordfrequency
+
+======================================================================
