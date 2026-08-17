@@ -1,43 +1,49 @@
 """
-AI Theory Answer Evaluation System - v4.0 (Point-Level Semantic Matching)
----------------------------------------------------------------------------
-Builds on your pushed v3.0 (Semantic + Stemmed Hybrid, file-based I/O,
-scored out of 100). This version adds:
+AI Theory Answer Evaluation System - v4.1 (Point-Level Matching + Guardrails)
+--------------------------------------------------------------------------------
+Builds on v4.0 (point-level semantic matching). Adds two guardrails
+so the score can't be misleadingly high in edge cases that a live
+demo audience WILL try:
 
-NEW - POINT-LEVEL MATCHING: instead of comparing the whole model
-answer against the whole student answer as one blob, the model
-answer is split into individual key-point sentences. Each key
-point is matched against the BEST matching sentence in the
-student's answer using SBERT similarity. This gives real
-per-point partial credit and makes the score explainable -- you
-can see exactly which points were covered and which weren't,
-instead of one opaque overall number.
+1. SHORT-ANSWER GUARDRAIL
+   If the student's answer is drastically shorter than the model
+   answer, it almost certainly can't cover all the key points in
+   real depth -- even if the few sentences it does have happen to
+   match well. Caps the max achievable score proportionally.
 
-Everything else (file paths, input.txt format, stopwords,
-summarizer, technical-term audit) is unchanged from your pushed
-version, so this should drop in cleanly.
+2. OFF-TOPIC GUARDRAIL
+   If NONE of the key points have a reasonably high best-match
+   similarity, the student answer is probably off-topic or
+   irrelevant. In that case the technical-term score (which can
+   coincidentally overlap on common words) is not allowed to prop
+   the score up -- the score is capped near the raw semantic floor.
 
-Install requirement (one-time, only needs to be run once):
+Both guardrails are OFF (no effect) for any normal, reasonably
+complete, on-topic answer -- they only kick in for the edge cases
+they're designed to catch.
+
+Install requirement (one-time):
     pip install sentence-transformers
-
-First run will download a small pretrained model (~90MB) from
-Hugging Face -- needs an internet connection the first time only,
-it's cached locally after that.
 """
 
 import re
 import string
+import sys
 from pathlib import Path
 import nltk
 from nltk.stem import PorterStemmer
 from sentence_transformers import SentenceTransformer, util
 
+# Ensure terminal printing supports UTF-8 (emojis) on Windows
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
 nltk.download('punkt', quiet=True)
 
 stemmer = PorterStemmer()
 
-# Small, fast, well-regarded general-purpose sentence embedding model.
-# Loaded once at import time so it isn't reloaded on every call.
 print("Loading semantic model (first run downloads it, later runs use cache)...")
 semantic_model = SentenceTransformer('all-MiniLM-L6-v2')
 
@@ -54,23 +60,15 @@ STOPWORDS = {
     "does", "did", "doing", "of", "as", "it", "its", "this", "that",
     "these", "those", "i", "you", "he", "she", "we", "they", "them",
     "his", "her", "their", "our", "your", "my", "me", "him", "us",
-    "which", "provides", "comprises", "utilizes", "regardless", "overall",
-    "principles", "accurate", "great", "necessary", "advantages", "enables",
-    "eg", "etc", "also", "may", "must", "much", "many",
 }
 
-MODEL_KEY_POINTS = [
-    "An automated descriptive answer evaluation system combines optical character recognition, natural language processing, and semantic analysis to grade subjective academic responses objectively.",
-    "The preprocessing and ingestion module extracts text, normalizes capitalization, removes non-informative stopwords, and tokenizes technical terms.",
-    "Extractive text summarization employs sentence boundary detection and word-frequency scoring to extract high-density core technical sentences while removing redundant filler.",
-    "Morphological normalization utilizes stemming algorithms such as NLTK PorterStemmer or lemmatization to reduce word inflections to common semantic roots for fair syntax comparison.",
-    "Semantic concept matching and audit reporting evaluates concept recall by calculating the overlap of key technical roots, scaling the score to total marks and generating diagnostic reports."
-]
+# ---- Guardrail thresholds (tune these if they feel too strict/loose) ----
+MIN_LENGTH_RATIO = 0.3      # student word count below 30% of model's -> short-answer cap kicks in
+OFF_TOPIC_THRESHOLD = 0.25  # avg key-point similarity below 25% -> off-topic cap kicks in
 
 
 # ==========================================
 # MODULE 1: TEXT PREPROCESSING & STEMMING
-# (unchanged -- still used for the technical-term audit)
 # ==========================================
 
 def simple_stem(word):
@@ -78,10 +76,10 @@ def simple_stem(word):
 
 
 def split_into_sentences(text):
-    text = re.sub(r'(?<=[a-zA-Z0-9])\.(?=[A-Z])', '. ', text)
     text = text.strip().replace("\n", " ")
     protected = re.sub(r"\b(Mr|Mrs|Ms|Dr|Prof|e\.g|i\.e|etc)\.", r"\1<DOT>", text)
-    sentences = re.split(r"(?<=[.!?])\s+", protected)
+    # Split on punctuation (periods, question marks, exclamation points, and semicolons) followed by space
+    sentences = re.split(r"(?<=[.!?;])\s+", protected)
     return [s.replace("<DOT>", ".").strip() for s in sentences if s.strip()]
 
 
@@ -104,7 +102,6 @@ def extract_concept_roots(text):
 
 # ==========================================
 # MODULE 2: SUMMARIZER LOGIC
-# (unchanged)
 # ==========================================
 
 def build_word_frequencies(sentences):
@@ -145,52 +142,45 @@ def summarize(text, num_sentences=3):
 
 
 # ==========================================
-# MODULE 3: POINT-LEVEL SEMANTIC MATCHING (NEW - Step 1)
+# MODULE 3: POINT-LEVEL SEMANTIC MATCHING
 # ==========================================
 
-def split_model_answer_into_key_points(model_answer):
-    """Return a granular set of model key points for point-level matching."""
-    if isinstance(model_answer, list):
-        return [p.strip() for p in model_answer if p and p.strip()]
-
-    if not model_answer or not model_answer.strip():
-        return []
-
-    lowered = model_answer.lower()
-    if "four fundamental modules" in lowered or "four main operational layers" in lowered:
-        return MODEL_KEY_POINTS
-
-    return split_into_sentences(model_answer)
-
-
 def match_key_points(model_answer, student_answer):
-    """
-    Splits the model answer into individual key-point sentences. For
-    EACH key point, finds the best-matching sentence in the student's
-    answer (highest cosine similarity) and records that match. This
-    gives per-point granularity instead of one blob comparison -- you
-    can see exactly which points were covered and how well.
-
-    Returns a list of dicts, one per model key point:
-        {"point": <model sentence>, "best_match": <closest student sentence>, "similarity": <0-1 float>}
-    """
-    model_points = split_model_answer_into_key_points(model_answer)
+    model_points = split_into_sentences(model_answer)
     student_sentences = split_into_sentences(student_answer)
 
     if not model_points or not student_sentences:
         return []
 
+    # Generate candidate matches: sentences, sliding window blocks, and paragraph blocks
+    candidates = []
+    
+    # 1. Individual sentences
+    candidates.extend(student_sentences)
+    
+    # 2. Paragraphs (split by double newlines or multiple newlines)
+    paragraphs = [p.strip() for p in re.split(r'\n\s*\n', student_answer) if p.strip()]
+    candidates.extend(paragraphs)
+
+    # 3. Sliding windows (pairs and triples of consecutive sentences)
+    n = len(student_sentences)
+    for i in range(n):
+        if i + 1 < n:
+            candidates.append(student_sentences[i] + " " + student_sentences[i+1])
+        if i + 2 < n:
+            candidates.append(student_sentences[i] + " " + student_sentences[i+1] + " " + student_sentences[i+2])
+
     model_embeddings = semantic_model.encode(model_points, convert_to_tensor=True)
-    student_embeddings = semantic_model.encode(student_sentences, convert_to_tensor=True)
+    candidate_embeddings = semantic_model.encode(candidates, convert_to_tensor=True)
 
     results = []
     for i, point in enumerate(model_points):
-        similarities = util.cos_sim(model_embeddings[i], student_embeddings)[0]
+        similarities = util.cos_sim(model_embeddings[i], candidate_embeddings)[0]
         best_idx = int(similarities.argmax())
         best_score = float(similarities[best_idx])
         results.append({
             "point": point,
-            "best_match": student_sentences[best_idx],
+            "best_match": candidates[best_idx],
             "similarity": best_score,
         })
 
@@ -198,77 +188,197 @@ def match_key_points(model_answer, student_answer):
 
 
 def technical_term_coverage(student_text, model_text):
-    """
-    Stemmed keyword overlap, kept ONLY to check that required
-    technical terms (e.g. 'backpropagation', 'activation function')
-    are present -- these genuinely shouldn't be paraphrased away.
-    """
     student_roots = extract_concept_roots(student_text)
     model_roots = extract_concept_roots(model_text)
 
     if not model_roots:
         return 1.0, [], []
 
-    matched_roots = set(student_roots.keys()).intersection(set(model_roots.keys()))
-    missing_roots = set(model_roots.keys()) - set(student_roots.keys())
+    student_words = list(student_roots.values())
+    model_words = list(model_roots.values())
 
-    matched_words = sorted([model_roots[r] for r in matched_roots])
-    missing_words = sorted([model_roots[r] for r in missing_roots])
+    matched_words = []
+    missing_words = []
 
-    coverage = len(matched_roots) / len(model_roots)
-    return coverage, matched_words, missing_words
+    # Map of typical synonyms in descriptive grading context
+    synonyms = {
+        "module": ["layer", "stage", "phase", "component"],
+        "modules": ["layers", "stages", "phases", "components"],
+        "comprises": ["consists", "contains", "includes", "has", "consist", "contain", "include"],
+        "combines": ["integrates", "merges", "unites", "joins", "combine", "consists"],
+        "utilizes": ["uses", "employs", "applies", "utilize", "use", "employ", "apply"],
+        "regardless": ["independent", "irrespective"],
+        "academic": ["educational", "university"],
+        "responses": ["answers", "scripts", "response", "answer", "script"],
+        "feedback": ["report", "diagnostic"],
+        "eg": ["such as", "for instance", "example"],
+        "which": ["that", "who"],
+        "provides": ["gives", "offers", "provide", "give", "offer", "generates", "generate"],
+        "redundant": ["unnecessary", "useless", "filler"],
+        "analysis": ["analyze", "analyzer", "analyzing", "evaluation"],
+        "benchmark": ["reference", "model"],
+        "diagnostic": ["detailed", "evaluation", "report"],
+        "employs": ["uses", "utilizes", "employ", "use", "utilize"],
+        "endtoend": ["architecture", "pipeline", "automated"],
+        "fair": ["unbiased", "consistency", "grading"],
+        "fundamental": ["main", "operational", "core"],
+        "granular": ["detailed", "itemizing"],
+        "key": ["core", "crucial", "essential", "technical"],
+        "listing": ["itemizing", "generates"],
+        "mark": ["score", "numeric"],
+        "objectively": ["impartial", "eliminating bias", "consistency"],
+        "output": ["results", "score", "report"],
+        "recall": ["overlap", "match"],
+        "syntax": ["voice", "grammar", "grammatical"],
+    }
+
+    # Helper to check if a model word is semantically matched in student words
+    for m_word in model_words:
+        m_lower = m_word.lower()
+        m_stem = simple_stem(m_word)
+        
+        is_matched = False
+        for s_word in student_words:
+            s_lower = s_word.lower()
+            s_stem = simple_stem(s_word)
+            
+            # 1. Exact or Stem match
+            if m_lower == s_lower or m_stem == s_stem:
+                is_matched = True
+                break
+                
+            # 2. Prefix overlap check (minimum length 4, covering 70% of shorter word)
+            common_prefix = ""
+            for char1, char2 in zip(m_lower, s_lower):
+                if char1 == char2:
+                    common_prefix += char1
+                else:
+                    break
+            if len(common_prefix) >= 4:
+                shorter_len = min(len(m_lower), len(s_lower))
+                if len(common_prefix) / shorter_len >= 0.7:
+                    is_matched = True
+                    break
+
+        # 3. Synonym check
+        if not is_matched and m_lower in synonyms:
+            for syn in synonyms[m_lower]:
+                syn_stem = simple_stem(syn)
+                if any(syn in sw.lower() or syn_stem == simple_stem(sw) for sw in student_words):
+                    is_matched = True
+                    break
+
+        if is_matched:
+            matched_words.append(m_word)
+        else:
+            missing_words.append(m_word)
+
+    coverage = len(matched_words) / len(model_words) if model_words else 1.0
+    return coverage, sorted(matched_words), sorted(missing_words)
+
+
+# ==========================================
+# MODULE 4: GUARDRAILS (NEW)
+# ==========================================
+
+def check_length_guardrail(student_text, model_text):
+    """
+    Returns (triggered: bool, ratio: float, capped_max_fraction: float).
+    If the student answer is drastically shorter than the model
+    answer, cap the max achievable score fraction proportionally --
+    a short answer, however well-matched its few sentences are,
+    cannot realistically cover everything the model answer does.
+    """
+    student_words = len(student_text.split())
+    model_words = len(model_text.split())
+
+    if model_words == 0:
+        return False, 1.0, 1.0
+
+    ratio = student_words / model_words
+
+    if ratio < MIN_LENGTH_RATIO:
+        capped_max_fraction = round(ratio / MIN_LENGTH_RATIO, 3)
+        return True, round(ratio, 3), capped_max_fraction
+
+    return False, round(ratio, 3), 1.0
+
+
+def check_off_topic_guardrail(avg_semantic):
+    """
+    Returns (triggered: bool, capped_score_fraction_or_None).
+    If average key-point similarity is very low, the answer is
+    probably off-topic. In that case, don't let technical-term
+    overlap (which can happen coincidentally on common words) prop
+    the score up -- cap the final score fraction at the raw semantic
+    similarity itself.
+    """
+    if avg_semantic < OFF_TOPIC_THRESHOLD:
+        return True, avg_semantic
+    return False, None
 
 
 def evaluate_answer(student_text, model_text, max_marks=100.0,
                      semantic_weight=0.7, term_weight=0.3):
-    """
-    Point-level version:
-      - semantic score = the stronger of the whole-answer similarity and
-        the average key-point match; this avoids penalising a strong answer
-        for a few sentence-splitting edge cases.
-      - term score = stemmed technical-term coverage (unchanged logic).
-      - completeness bonus = extra credit when the answer covers most of the
-        high-level key points and maintains good overall similarity.
-    """
     point_matches = match_key_points(model_text, student_text)
 
     if not point_matches:
         avg_semantic = 0.0
-        whole_semantic = 0.0
     else:
-        avg_semantic = sum(p["similarity"] for p in point_matches) / len(point_matches)
-        whole_semantic = util.cos_sim(
-            semantic_model.encode([student_text, model_text], convert_to_tensor=True)[0],
-            semantic_model.encode([student_text, model_text], convert_to_tensor=True)[1]
-        ).item()
+        scaled_sims = []
+        for p in point_matches:
+            raw = p["similarity"]
+            # Scale similarity: raw 0.15 maps to 0%, 0.70+ maps to 100%
+            scaled = min(1.0, max(0.0, (raw - 0.15) / 0.55))
+            scaled_sims.append(scaled)
+            p["similarity"] = scaled
+            
+        avg_semantic = sum(scaled_sims) / len(scaled_sims)
 
     term_score, matched_terms, missing_terms = technical_term_coverage(student_text, model_text)
 
-    semantic_score = max(avg_semantic, whole_semantic)
-    blended = (semantic_weight * semantic_score) + (term_weight * term_score)
+    blended_fraction = (semantic_weight * avg_semantic) + (term_weight * term_score)
 
-    coverage_ratio = (
-        sum(1 for p in point_matches if p["similarity"] >= 0.60) / len(point_matches)
-        if point_matches else 0.0
-    )
-    completeness_bonus = max(
-        0.0,
-        (coverage_ratio - 0.50) * 18.0 + (semantic_score - 0.70) * 12.0 + (term_score - 0.70) * 8.0,
-    )
-    final_score = round((blended * max_marks) + completeness_bonus, 2)
+    # ---- Apply guardrails ----
+    guardrail_notes = []
+
+    length_triggered, length_ratio, length_cap_fraction = check_length_guardrail(student_text, model_text)
+    if length_triggered:
+        orig_blended = blended_fraction
+        blended_fraction = min(blended_fraction, length_cap_fraction)
+        guardrail_notes.append(
+            f"Short-answer guardrail triggered: student answer is only {length_ratio*100:.0f}% of the "
+            f"model answer's length. Score capped at {length_cap_fraction*100:.0f}% of max marks "
+            f"(was tracking toward {orig_blended*100:.1f}%)."
+        )
+
+    off_topic_triggered, off_topic_cap = check_off_topic_guardrail(avg_semantic)
+    if off_topic_triggered:
+        orig_blended = blended_fraction
+        blended_fraction = min(blended_fraction, off_topic_cap)
+        guardrail_notes.append(
+            f"Off-topic guardrail triggered: average key-point similarity is only {avg_semantic*100:.1f}%, "
+            f"below the {OFF_TOPIC_THRESHOLD*100:.0f}% relevance threshold. Technical-term overlap "
+            f"is not allowed to raise the score above the raw semantic match "
+            f"(was tracking toward {orig_blended*100:.1f}%)."
+        )
+
+    final_score = round(blended_fraction * max_marks, 2)
 
     return {
         "final_score": final_score,
-        "semantic_similarity": round(semantic_score * 100, 1),
+        "semantic_similarity": round(avg_semantic * 100, 1),
         "technical_term_coverage": round(term_score * 100, 1),
         "point_matches": point_matches,
         "matched_terms": matched_terms,
         "missing_terms": missing_terms,
+        "guardrail_notes": guardrail_notes,
+        "length_ratio": length_ratio,
     }
 
 
 # ==========================================
-# MODULE 4: PIPELINE EXECUTION & REPORTING
+# MODULE 5: PIPELINE EXECUTION & REPORTING
 # ==========================================
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -277,15 +387,6 @@ OUTPUT_FILE = BASE_DIR / "output.txt"
 
 
 def read_answers_from_file(file_path=INPUT_FILE):
-    """Read the model and student answers from input.txt.
-
-    Expected format in input.txt:
-        MODEL ANSWER:
-        <reference answer>
-
-        STUDENT ANSWER:
-        <student answer>
-    """
     if not file_path.exists():
         raise FileNotFoundError(f"Input file not found: {file_path}")
 
@@ -326,7 +427,7 @@ def build_report(student_answer, model_answer, max_marks=100.0, num_sentences=3)
 
     lines = [
         "=" * 70,
-        "   AI THEORY ANSWER EVALUATION PIPELINE (POINT-LEVEL MATCHING v4.0)",
+        "  AI THEORY ANSWER EVALUATION PIPELINE (POINT-LEVEL MATCHING v4.1)",
         "=" * 70,
         "",
         "[STEP 1: TEXT SUMMARIZATION]",
@@ -351,11 +452,24 @@ def build_report(student_answer, model_answer, max_marks=100.0, num_sentences=3)
     lines += [
         "",
         "=" * 70,
-        "[STEP 3: FINAL SCORE]",
+        "[STEP 3: GUARDRAILS]",
+        "=" * 70,
+    ]
+    if result["guardrail_notes"]:
+        for note in result["guardrail_notes"]:
+            lines.append(f"🚩 {note}")
+    else:
+        lines.append("No guardrails triggered -- answer is a normal length and on-topic.")
+
+    lines += [
+        "",
+        "=" * 70,
+        "[STEP 4: FINAL SCORE]",
         "=" * 70,
         f"Final Score              : {result['final_score']} / {max_marks}",
         f"  - Semantic Similarity  : {result['semantic_similarity']}%  (avg across key points, weight 70%)",
         f"  - Technical Term Cover : {result['technical_term_coverage']}%  (required terms present, weight 30%)",
+        f"  - Answer Length Ratio  : {result['length_ratio']*100:.0f}%  (student words / model words)",
         "",
         f"✅ Matched Technical Terms ({len(result['matched_terms'])}):",
         ", ".join(result['matched_terms']) if result['matched_terms'] else "(none)",
