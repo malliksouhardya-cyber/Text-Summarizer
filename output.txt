@@ -1,49 +1,51 @@
 ======================================================================
-   AI THEORY ANSWER EVALUATION PIPELINE (POINT-LEVEL MATCHING v4.0)
+  AI THEORY ANSWER EVALUATION PIPELINE (POINT-LEVEL MATCHING v4.1)
 ======================================================================
 
 [STEP 1: TEXT SUMMARIZATION]
-Original Length : 509 words
-Summary Length  : 43 words (91.6% reduction)
+Original Length : 89 words
+Summary Length  : 89 words (0.0% reduction)
 
 --- Extracted Summary ---
-The second core phase is extractive text summarization. To isolate essential statements, the summarizer splits the answer into individual sentences using sentence boundary detection. The system extracts concept roots from both the student's summarized text (or full answer) and the teacher's model answer.
+A hash table is a data structure used to store data in key-value pairs so searching is very fast.A hash function takes the key and converts it into a number. Then it puts the value at that array position.Collisions:A collision happens when two keys get the same number from the hash function. You can fix this by:Chaining: Putting the elements in a list.Open Addressing: Finding another empty spot in the array.Time Complexity:Search: $O(1)$Insert: $O(1)$Delete: $O(1)$Hash tables are always $O(1)$ fast, which makes them better than arrays and linked lists.
 
 ======================================================================
 [STEP 2: POINT-LEVEL SEMANTIC MATCHING]
 ======================================================================
 
-✅ Key Point 1 (74.5% match)
-   Model    : An automated descriptive answer evaluation system combines optical character recognition, natural language processing, and semantic analysis to grade subjective academic responses objectively.
-   Best match in student answer: "Automated evaluation of descriptive answers is an emerging subfield of Educational Natural Language Processing (EdNLP) aimed at eliminating manual grading overhead and reducing human subjective bias in university-level examinations."
+✅ Key Point 1 (100.0% match)
+   Model    : A hash table is a data structure that maps keys to values using a hash function that computes an index into an array, allowing for efficient average-case $ O(1) $ access, insertion, and deletion.
+   Best match in student answer: "A hash table is a data structure used to store data in key-value pairs so searching is very fast. A hash function takes the key and converts it into a number."
 
-⚠️ Key Point 2 (59.1% match)
-   Model    : The preprocessing and ingestion module extracts text, normalizes capitalization, removes non-informative stopwords, and tokenizes technical terms.
-   Best match in student answer: "The initial stage of the evaluation workflow begins with text ingestion."
+✅ Key Point 2 (100.0% match)
+   Model    : It uses a hash function to convert an arbitrary key into a fixed-size integer index within the array bounds.
+   Best match in student answer: "A hash function takes the key and converts it into a number. Then it puts the value at that array position."
 
-✅ Key Point 3 (76.9% match)
-   Model    : Extractive text summarization employs sentence boundary detection and word-frequency scoring to extract high-density core technical sentences while removing redundant filler.
-   Best match in student answer: "The second core phase is extractive text summarization."
+✅ Key Point 3 (72.8% match)
+   Model    : Collision resolution strategies include chaining, where each array slot holds a linked list or tree of elements that hash to that index, and open addressing, where collisions are resolved by probing alternative slots using techniques like linear probing, quadratic probing, or double hashing.
+   Best match in student answer: "A hash function takes the key and converts it into a number. Then it puts the value at that array position. Collisions: A collision happens when two keys get the same number from the hash function."
 
-✅ Key Point 4 (77.5% match)
-   Model    : Morphological normalization utilizes stemming algorithms such as NLTK PorterStemmer or lemmatization to reduce word inflections to common semantic roots for fair syntax comparison.
-   Best match in student answer: "The third stage is morphological normalization via stemming and lemmatization."
-
-⚠️ Key Point 5 (63.5% match)
-   Model    : Semantic concept matching and audit reporting evaluates concept recall by calculating the overlap of key technical roots, scaling the score to total marks and generating diagnostic reports.
-   Best match in student answer: "Furthermore, the system generates a detailed evaluation report itemizing matched technical terms, identifying missing concepts, and highlighting structural gaps."
+⚠️ Key Point 4 (65.1% match)
+   Model    : Average-case performance assumes uniform distribution and a load factor $ \alpha = n/m $ maintained via dynamic resizing, while the worst-case time complexity is $ O(n) $ when all keys hash to the same bucket.
+   Best match in student answer: "Time Complexity: Search: $ O(1) $ Insert: $ O(1) $ Delete: $ O(1) $ Hash tables are always $ O(1) $ fast, which makes them better than arrays and linked lists."
 
 ======================================================================
-[STEP 3: FINAL SCORE]
+[STEP 3: GUARDRAILS]
 ======================================================================
-Final Score              : 86.21 / 100.0
-  - Semantic Similarity  : 81.7%  (avg across key points, weight 70%)
-  - Technical Term Cover : 73.3%  (required terms present, weight 30%)
+No guardrails triggered -- answer is a normal length and on-topic.
 
-✅ Matched Technical Terms (63):
-answer, audit, automated, boundary, calculating, capitalization, character, common, concept, core, descriptive, detection, document, ensuring, evaluation, extracts, filler, four, grade, highdensity, inflections, ingestion, language, lemmatization, matching, missing, model, morphological, natural, nltk, noninformative, normalizes, optical, overlap, pipeline, porterstemmer, preprocessing, processing, ratio, recognition, reduce, removes, reporting, roots, scales, scoring, semantic, sentence, stemming, stopwords, student, subjective, summarization, system, technical, tense, terms, text, tokenizes, total, transparent, while, word
+======================================================================
+[STEP 4: FINAL SCORE]
+======================================================================
+Final Score              : 71.71 / 100.0
+  - Semantic Similarity  : 84.5%  (avg across key points, weight 70%)
+  - Technical Term Cover : 41.9%  (required terms present, weight 30%)
+  - Answer Length Ratio  : 82%  (student words / model words)
 
-⚠️ Missing Technical Terms (23):
-academic, analysis, benchmark, combines, comparison, diagnostic, employs, endtoend, fair, feedback, fundamental, granular, key, listing, mark, modules, objectively, output, recall, redundant, responses, syntax, wordfrequency
+✅ Matched Technical Terms (13):
+array, chaining, collisions, data structure, deletion, elements, hash function, hash table, insertion, keys, linked list, open addressing, values
+
+⚠️ Missing Technical Terms (18):
+access, arbitrary key, array slot, averagecase performance, collision resolution strategies, double hashing, dynamic resizing, fixedsize integer index, index, linear probing, load factor, probing alternative slots, quadratic probing, same bucket, tree, uniform distribution, using techniques, worstcase time complexity
 
 ======================================================================
